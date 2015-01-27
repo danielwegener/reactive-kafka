@@ -4,7 +4,7 @@ import akka.stream.actor.{ActorPublisher, ActorPublisherMessage}
 import kafka.consumer.{ConsumerTimeoutException, KafkaConsumer}
 
 import scala.util.{Failure, Success, Try}
-private[kafka] class KafkaActorPublisher(consumer: KafkaConsumer) extends ActorPublisher[String] {
+private[kafka] class KafkaActorPublisher[K,V](consumer: KafkaConsumer[K,V]) extends ActorPublisher[(K,V)] {
 
   val iterator = consumer.iterator()
 
@@ -20,7 +20,7 @@ private[kafka] class KafkaActorPublisher(consumer: KafkaConsumer) extends ActorP
   }
 
   private def tryReadingSingleElement() = {
-    Try(iterator.next().message()).map(bytes => Some(new String(bytes))).recover {
+    Try{val nxt = iterator.next(); (nxt.key(),nxt.message())}.map(Some.apply).recover {
       // We handle timeout exceptions as normal 'end of the queue' cases
       case _: ConsumerTimeoutException => None
     }
@@ -31,8 +31,8 @@ private[kafka] class KafkaActorPublisher(consumer: KafkaConsumer) extends ActorP
     while (isActive && totalDemand > 0 && maybeMoreElements) {
       tryReadingSingleElement() match {
         case Success(None) => maybeMoreElements = false // No more elements
-        case Success(valueOpt) =>
-          valueOpt.foreach(element => onNext(element))
+        case Success(Some((key,message))) =>
+            onNext((key, message))
           maybeMoreElements = true
         case Failure(ex) => onError(ex)
       }

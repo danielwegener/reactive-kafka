@@ -3,11 +3,15 @@ package kafka.producer
 import java.util.{Properties, UUID}
 
 import kafka.message.{DefaultCompressionCodec, NoCompressionCodec}
+import kafka.serializer.Encoder
+import scala.language.existentials
+
+import scala.reflect.ClassTag
 
 /**
  * Copied from https://github.com/stealthly/scala-kafka, 0.8.2-beta (not released at the moment)
  */
-case class KafkaProducer(
+case class KafkaProducer[K,V](
                           topic: String,
                           brokerList: String,
                           /** brokerList
@@ -48,7 +52,7 @@ case class KafkaProducer(
                             * setting a non-zero value here can lead to duplicates in the case of network errors
                             * that cause a message to be sent but the acknowledgement to be lost.
                             */
-                          requestRequiredAcks: Integer = -1
+                          requestRequiredAcks: Integer = -1,
                           /** requestRequiredAcks
                             *  0) which means that the producer never waits for an acknowledgement from the broker (the same behavior as 0.7).
                             *     This option provides the lowest latency but the weakest durability guarantees (some data will be lost when a server fails).
@@ -58,7 +62,9 @@ case class KafkaProducer(
                             * -1) which means that the producer gets an acknowledgement after all in-sync replicas have received the data. This option
                             *     provides the best durability, we guarantee that no messages will be lost as long as at least one in sync replica remains.
                             */
-                          ) {
+                            keySerializer:Class[_<:Encoder[K]],
+                            messageSerializer:Class[_<:Encoder[V]]
+                              ) {
 
   val props = new Properties()
 
@@ -71,22 +77,15 @@ case class KafkaProducer(
   props.put("message.send.max.retries", messageSendMaxRetries.toString)
   props.put("request.required.acks",requestRequiredAcks.toString)
   props.put("client.id",clientId.toString)
+  props.put("serializer.class", keySerializer.getName)
+  props.put("key.serializer.class", messageSerializer.getName)
 
-  val producer = new Producer[AnyRef, AnyRef](new ProducerConfig(props))
+  val producer = new Producer[K, V](new ProducerConfig(props))
 
-  def kafkaMesssage(message: Array[Byte], partition: Array[Byte]): KeyedMessage[AnyRef, AnyRef] = {
-    if (partition == null) {
-      new KeyedMessage(topic,message)
-    } else {
-      new KeyedMessage(topic,partition,message)
-    }
-  }
 
-  def send(message: String, partition: String = null): Unit = send(message.getBytes("UTF8"), if (partition == null) null else partition.getBytes("UTF8"))
-
-  def send(message: Array[Byte], partition: Array[Byte]): Unit = {
+  def send(key: K, message: V): Unit = {
     try {
-      producer.send(kafkaMesssage(message, partition))
+      producer.send(new KeyedMessage[K,V](topic, key, message))
     } catch {
       case e: Exception =>
         e.printStackTrace()

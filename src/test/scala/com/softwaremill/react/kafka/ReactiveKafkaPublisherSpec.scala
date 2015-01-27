@@ -2,6 +2,7 @@ package com.softwaremill.react.kafka
 
 import java.util.UUID
 
+
 import ly.stealth.testing.BaseSpec
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.reactivestreams.tck.{PublisherVerification, TestEnvironment}
@@ -12,7 +13,7 @@ import scala.concurrent.duration.{FiniteDuration, _}
 import scala.language.postfixOps
 
 class ReactiveKafkaPublisherSpec(defaultTimeout: FiniteDuration)
-  extends PublisherVerification[String](new TestEnvironment(defaultTimeout.toMillis), defaultTimeout.toMillis)
+  extends PublisherVerification[(String,String)](new TestEnvironment(defaultTimeout.toMillis), defaultTimeout.toMillis)
   with TestNGSuiteLike with ReactiveStreamsTckVerificationBase with BaseSpec {
 
   def this() = this(1300 millis)
@@ -36,12 +37,13 @@ class ReactiveKafkaPublisherSpec(defaultTimeout: FiniteDuration)
     (1L to realSize) foreach { number =>
       lowLevelProducer.send(record)
     }
-    kafka.consume(topic, group)
+    implicit val stringDecoder =  ReactiveKafka.stringDecoder
+    kafka.consume[String,String](topic, group)
   }
 
-  override def createErrorStatePublisher(): Publisher[String] = {
-    return new Publisher[String] {
-      override def subscribe(subscriber: Subscriber[_ >: String]): Unit = subscriber.onError(new RuntimeException)
+  override def createErrorStatePublisher(): Publisher[(String,String)] = {
+    new Publisher[(String,String)] {
+      override def subscribe(subscriber: Subscriber[_ >: (String,String)]): Unit = subscriber.onError(new RuntimeException)
     }
   }
 }

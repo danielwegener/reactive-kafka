@@ -7,6 +7,7 @@ import akka.pattern.ask
 import akka.stream.actor.{ActorSubscriber, ActorSubscriberMessage, WatermarkRequestStrategy}
 import akka.testkit.{ImplicitSender, TestKit}
 import akka.util.Timeout
+import kafka.serializer.{Encoder, StringEncoder, StringDecoder}
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 
 import scala.concurrent.Await
@@ -21,6 +22,8 @@ with Matchers with BeforeAndAfterAll {
   val topic = UUID.randomUUID().toString
   val group = "group"
   implicit val timeout = Timeout(1 second)
+  implicit val stringDecoder = new StringDecoder()
+  implicit val stringSerializer = classOf[StringEncoder]
 
   override def afterAll {
     TestKit.shutdownActorSystem(system)
@@ -31,15 +34,15 @@ with Matchers with BeforeAndAfterAll {
     "combine well" in {
       // given
       val kafka = new ReactiveKafka("localhost:9092", "localhost:2181")
-      val publisher = kafka.consume(topic, group)(system)
-      val kafkaSubscriber = kafka.publish(topic, group)(system)
+      val publisher = kafka.consume[String,String](topic, group)
+      val kafkaSubscriber = kafka.publish[String,String](topic, group)
       val subscriberActor = system.actorOf(Props(new ReactiveTestSubscriber))
-      val testSubscriber = ActorSubscriber[String](subscriberActor)
+      val testSubscriber = ActorSubscriber[(String,String)](subscriberActor)
       publisher.subscribe(testSubscriber)
 
       // when
-      kafkaSubscriber.onNext("one")
-      kafkaSubscriber.onNext("two")
+      kafkaSubscriber.onNext(("one","one"))
+      kafkaSubscriber.onNext(("two","two"))
 
       // then
       awaitCond {
@@ -54,10 +57,10 @@ class ReactiveTestSubscriber extends ActorSubscriber {
 
   protected def requestStrategy = WatermarkRequestStrategy(10)
 
-  var elements: Vector[String] = Vector.empty
+  var elements: Vector[(String,String)] = Vector.empty
 
   def receive = {
-    case ActorSubscriberMessage.OnNext(element) => elements = elements :+ element.asInstanceOf[String]
+    case ActorSubscriberMessage.OnNext(element) => elements = elements :+ element.asInstanceOf[(String,String)]
     case "get elements" => sender ! elements
   }
 }
